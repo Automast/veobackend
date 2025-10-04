@@ -16,6 +16,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
+const cors = require('cors');
 
 const app = express();
 
@@ -91,6 +92,20 @@ app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
 function rawBodySaver(req, res, buf) { if (buf && buf.length) req.rawBody = buf.toString('utf8'); }
 
 app.set('trust proxy', true);
+
+// CORS: allow your Netlify site
+app.use(
+  cors({
+    origin: 'https://veoguide.netlify.app',
+    credentials: true, // allow cookies/credentials
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+
+// optional: handle preflight for all routes
+app.options('*', cors());
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Helpers
@@ -104,14 +119,31 @@ const graphUrl = `https://graph.facebook.com/${FB_GRAPH_VERSION}/${FB_PIXEL_ID}/
 const normalizeEmail = (email) => (email || '').trim().toLowerCase();
 const sha256 = (value) => crypto.createHash('sha256').update(value || '').digest('hex');
 
-function setCookie(res, name, value, days = 365) {
-  res.cookie(name, value, {
-    httpOnly: false,
-    sameSite: 'Lax',
+function setCookie(res, name, value, days = 365, { httpOnly = false } = {}) {
+  const isProd = process.env.NODE_ENV === 'production';
+  // For cross-site requests, browsers require SameSite=None; Secure
+  const base = {
+    path: '/',
     maxAge: days * 24 * 60 * 60 * 1000,
-    path: '/'
-  });
+    httpOnly,
+  };
+
+  if (isProd) {
+    res.cookie(name, value, {
+      ...base,
+      sameSite: 'None',
+      secure: true, // required with SameSite=None
+    });
+  } else {
+    // local HTTP dev fallback (so cookies still set without HTTPS)
+    res.cookie(name, value, {
+      ...base,
+      sameSite: 'Lax',
+      secure: false,
+    });
+  }
 }
+
 
 // Telegram notification helper (optional)
 async function sendTelegramNotification(order, eventData) {
