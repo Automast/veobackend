@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Payment Complete</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { 
+      height: 100%;
+      overflow: hidden;
+    }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; 
+      background: #0a0a0a; 
+      color: #fff; 
+      position: relative;
+    }
+    
+    .gradient-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: radial-gradient(circle at 30% 50%, rgba(102, 126, 234, 0.15) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 80%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+      animation: gradientShift 10s ease infinite;
+    }
+    @keyframes gradientShift {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    
+    .wrap {
+      height: 100vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 16px;
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .success-icon {
+      width: 60px;
+      height: 60px;
+      margin: 0 auto 16px;
+      background: linear-gradient(135deg, #00d4ff 0%, #667eea 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      animation: scaleIn 0.5s ease 0.2s backwards;
+      box-shadow: 0 10px 40px rgba(0, 212, 255, 0.3);
+      flex-shrink: 0;
+    }
+    @keyframes scaleIn {
+      from { transform: scale(0); }
+      to { transform: scale(1); }
+    }
+    
+    .card {
+      background: linear-gradient(145deg, #1a1a1a 0%, #0d0d0d 100%);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 28px 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      text-align: center;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 900;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #00d4ff 0%, #667eea 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: fadeIn 0.6s ease 0.3s backwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    .welcome {
+      color: #b0b0b0;
+      font-size: 0.95rem;
+      margin-bottom: 24px;
+      animation: fadeIn 0.6s ease 0.4s backwards;
+    }
+    
+    .section {
+      margin: 20px 0;
+      padding: 20px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.05);
+      animation: fadeIn 0.6s ease 0.5s backwards;
+    }
+    
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    .section-desc {
+      color: #888;
+      margin-bottom: 12px;
+      line-height: 1.5;
+      font-size: 0.85rem;
+    }
+    
+    .link-box {
+      background: #0a0a0a;
+      border: 2px dashed rgba(0, 212, 255, 0.3);
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+      word-break: break-all;
+      color: #00d4ff;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8rem;
+      transition: all 0.2s ease;
+    }
+    
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    
+    .btn {
+      padding: 11px 18px;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 110px;
+    }
+    .btn i { font-size: 0.9rem; }
+    
+    .btn-outline {
+      background: transparent;
+      border: 2px solid #2a2a2a;
+      color: #fff;
+    }
+    .btn-outline:hover {
+      background: #2a2a2a;
+    }
+    
+    .btn-success {
+      background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%);
+      color: #0a0a0a;
+      font-weight: 900;
+      box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3);
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+      width: 100%;
+    }
+    
+    .info-box {
+      background: rgba(102, 126, 234, 0.1);
+      border-left: 3px solid #667eea;
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin: 20px 0;
+      text-align: left;
+      animation: fadeIn 0.6s ease 0.6s backwards;
+    }
+    .info-box p {
+      color: #b0b0b0;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      margin: 3px 0;
+    }
+    .info-box i { margin-right: 6px; color: #667eea; }
+    
+    .status {
+      display: inline-block;
+      padding: 6px 12px;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 16px;
+      color: #00d4ff;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    
+    footer {
+      text-align: center;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      color: #666;
+      font-size: 0.75rem;
+    }
+    
+    @media (max-width: 480px) {
+      .card { padding: 24px 20px; }
+      h1 { font-size: 1.5rem; }
+      .section { padding: 16px; }
+      .section-title { font-size: 1rem; }
+      .btn { font-size: 0.8rem; padding: 10px 14px; min-width: 100px; }
+    }
+    
+    @media (min-height: 700px) {
+      .wrap { justify-content: flex-start; padding-top: 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="gradient-bg"></div>
+  
+  <div class="wrap">
+    <div class="card">
+      <div class="success-icon"><i class="fas fa-check"></i></div>
+      <h1>Payment Complete!</h1>
+      <p class="welcome" id="welcomeMsg">Thanks for your purchase.</p>
+      
+      <div class="section">
+        <div class="section-title">
+          <i class="fas fa-folder-open"></i>
+          <span>Access Your Guide (I will also forward the guide to your email), also make sure you save the guide link somewhere.</span>
+        </div>
+        <p class="section-desc">
+          Click below to open your Google Veo 3 guide:
+        </p>
+        <div class="link-box" id="driveLink">Loading...</div>
+        <div class="btn-row">
+          <button class="btn btn-outline" id="copyBtn">
+            <i class="far fa-copy"></i>
+            <span>Copy</span>
+          </button>
+          <a class="btn btn-success" id="visitBtn" href="#" target="_blank" rel="noopener">
+            <i class="fas fa-rocket"></i>
+            <span>Open Guide</span>
+          </a>
+        </div>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">
+          <i class="fab fa-whatsapp"></i>
+          <span>Join Community (Important)</span>
+        </div>
+        <p class="section-desc">
+          Make sure you join our whatsapp Community so you dont miss out on new updates
+        </p>
+        <a class="btn btn-primary" id="waBtn" href="#" target="_blank" rel="noopener">
+          <i class="fas fa-users"></i>
+          <span>Join WhatsApp Community</span>
+        </a>
+      </div>
+      
+      <div class="info-box">
+        <p><i class="fas fa-lightbulb"></i><strong>Bookmark this page!</strong></p>
+        <p>Return anytime with your order reference.</p>
+        <div class="status" id="refBox">Ref: <span id="refText">—</span></div>
+      </div>
+      
+      <div id="statusMsg" style="margin-top: 16px; color: #888; font-size: 0.8rem;">
+        Verifying...
+      </div>
+    </div>
+    
+    <footer>
+      <p>&copy; 2025 Google Veo 3 Guide</p>
+    </footer>
+  </div>
+
+  <script>
+    function qs(n) { 
+      return new URLSearchParams(location.search).get(n);
+    }
+    
+    async function loadOrder() {
+      const ref = qs('ref');
+      const token = qs('token');
+      
+      document.getElementById('refText').textContent = ref || '—';
+      
+      if (!ref || !token) {
+        document.getElementById('statusMsg').textContent = '❌ Missing reference or token';
+        return;
+      }
+      
+      try {
+        const res = await fetch(`/api/order/confirm?ref=${encodeURIComponent(ref)}&token=${encodeURIComponent(token)}`);
+        const data = await res.json();
+        
+        if (!data.ok) {
+          document.getElementById('statusMsg').textContent = '❌ ' + (data.error || 'Verification failed');
+          return;
+        }
+        
+        document.getElementById('statusMsg').textContent = '✓ Verified';
+        
+        if (data.order?.firstName) {
+          document.getElementById('welcomeMsg').textContent = `Thanks ${data.order.firstName}! 🎉`;
+        }
+        
+        document.getElementById('driveLink').textContent = data.drive;
+        document.getElementById('visitBtn').href = data.drive;
+        document.getElementById('waBtn').href = data.whatsapp;
+        
+      } catch (err) {
+        console.error('Confirmation error:', err);
+        document.getElementById('statusMsg').textContent = '❌ Could not verify. Refresh or contact support.';
+      }
+    }
+    
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      const link = document.getElementById('driveLink').textContent.trim();
+      
+      if (link === 'Loading...') {
+        alert('Please wait...');
+        return;
+      }
+      
+      try {
+        await navigator.clipboard.writeText(link);
+        const btn = document.getElementById('copyBtn');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i><span>Copied</span>';
+        btn.style.background = 'rgba(0, 212, 255, 0.2)';
+        btn.style.borderColor = '#00d4ff';
+        
+        setTimeout(() => {
+          btn.innerHTML = originalHTML;
+          btn.style.background = '';
+          btn.style.borderColor = '';
+        }, 2000);
+      } catch (err) {
+        alert('Could not copy. Please copy manually.');
+      }
+    });
+    
+    loadOrder();
+  </script>
+</body>
+</html>
