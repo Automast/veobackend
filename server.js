@@ -1,10 +1,10 @@
 /**
  * server.js - UPDATED VERSION
- * ✅ Phone number field with E.164 formatting
- * ✅ Improved CAPI reliability with better error handling
- * ✅ Phone number in Telegram notifications
- * ✅ Better validation and logging
- * ✅ Retry logic for failed CAPI events
+ * ✅ Email-only collection on payment
+ * ✅ WhatsApp phone collected on paycomplete page
+ * ✅ Two Telegram messages: order event + phone number
+ * ✅ Fixed CAPI with proper SHA256 hashing
+ * ✅ Improved error handling and retry logic
  */
 
 require('dotenv').config();
@@ -50,10 +50,10 @@ mongoose.connect(MONGODB_URI, { autoIndex: true })
 
 const OrderSchema = new mongoose.Schema({
   reference: { type: String, index: true, unique: true },
-  email: String,
-  firstName: String,
-  lastName: String,
-  phone: String, // E.164 format
+  email: { type: String, required: true },
+  firstName: String, // Optional - collected via WhatsApp modal
+  lastName: String,  // Optional - collected via WhatsApp modal
+  phone: String,     // Optional - collected via WhatsApp modal
   amount: Number,
   currency: String,
   ip: String,
@@ -72,7 +72,8 @@ const OrderSchema = new mongoose.Schema({
     error: String
   },
   telegram: {
-    sent: { type: Boolean, default: false },
+    orderSent: { type: Boolean, default: false },
+    phoneSent: { type: Boolean, default: false },
     lastTriedAt: Date,
     response: mongoose.Schema.Types.Mixed
   },
@@ -120,20 +121,23 @@ const paystack = axios.create({
 const graphUrl = `https://graph.facebook.com/${FB_GRAPH_VERSION}/${FB_PIXEL_ID}/events`;
 
 const normalizeEmail = (email) => (email || '').trim().toLowerCase();
+
+/**
+ * SHA256 hash function for PII data
+ * Per Meta CAPI requirements: lowercase and trim before hashing
+ */
 const sha256 = (value) => {
   if (!value) return null;
-  return crypto.createHash('sha256').update(String(value).toLowerCase().trim()).digest('hex');
+  const normalized = String(value).toLowerCase().trim();
+  return crypto.createHash('sha256').update(normalized).digest('hex');
 };
 
 /**
- * Format phone number for Facebook CAPI
- * Input: E.164 format (+2348034567890) or any format
- * Output: digits only without + (2348034567890)
- * NO VALIDATION - just clean and format
+ * Format phone number for CAPI
+ * Remove all non-digits, no + sign needed for hashed version
  */
 function formatPhoneForCAPI(phone) {
   if (!phone) return null;
-  // Remove + and any non-digit characters
   return phone.replace(/\D/g, '');
 }
 
@@ -160,8 +164,8 @@ function setCookie(res, name, value, days = 365, { httpOnly = false } = {}) {
   }
 }
 
-// Telegram notification helper
-async function sendTelegramNotification(order, eventData) {
+// Telegram notification for order
+async function sendOrderTelegram(order, eventData) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     return { sent: false, reason: 'Telegram not configured' };
   }
@@ -172,8 +176,7 @@ async function sendTelegramNotification(order, eventData) {
 
 *CUSTOMER DETAILS*
 📧 Email: \`${order.email}\`
-👤 Name: ${order.firstName || 'N/A'} ${order.lastName || 'N/A'}
-📱 WhatsApp: \`${order.phone || 'N/A'}\`
+${order.phone ? `📱 Phone: \`${order.phone}\`` : ''}
 
 *ORDER INFO*
 🔖 Reference: \`${order.reference}\`
@@ -182,7 +185,6 @@ async function sendTelegramNotification(order, eventData) {
 
 *TRACKING DATA*
 🌐 IP: \`${order.ip || 'N/A'}\`
-🖥️ User-Agent: \`${order.userAgent?.substring(0, 60) || 'N/A'}...\`
 🔗 FBC: \`${order.fbc || 'N/A'}\`
 🍪 FBP: \`${order.fbp || 'N/A'}\`
 🌍 Country: ${order.country || 'NG'}
@@ -207,7 +209,51 @@ Tries: ${order.capi?.tries || 0}
 
     return { sent: true, response: data };
   } catch (err) {
-    console.error('❌ Telegram notification failed:', err.response?.data || err.message);
+    console.error('❌ Order Telegram notification failed:', err.response?.data || err.message);
+    return { sent: false, error: err.response?.data || err.message };
+  }
+}
+
+// Telegram notification for phone number
+async function sendPhoneTelegram(order) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return { sent: false, reason: 'Telegram not configured' };
+  }
+
+  if (!order.phone) {
+    return { sent: false, reason: 'No phone number' };
+  }
+
+  try {
+    const message = `
+📱 *WHATSAPP NUMBER COLLECTED*
+
+*ORDER REFERENCE*
+🔖 Reference: \`${order.reference}\`
+
+*CUSTOMER INFO*
+📧 Email: \`${order.email}\`
+📱 WhatsApp: \`${order.phone}\`
+
+*TIME*
+🕐 Submitted: ${new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })}
+
+*ACTION REQUIRED*
+✅ Send the guide to: ${order.phone}
+💬 WhatsApp Link: ${WHATSAPP_GROUP_URL}
+📗 Drive Link: ${DRIVE_LINK}
+    `.trim();
+
+    const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const { data } = await axios.post(telegramUrl, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: message,
+      parse_mode: 'Markdown'
+    }, { timeout: 10000 });
+
+    return { sent: true, response: data };
+  } catch (err) {
+    console.error('❌ Phone Telegram notification failed:', err.response?.data || err.message);
     return { sent: false, error: err.response?.data || err.message };
   }
 }
@@ -252,18 +298,19 @@ app.post('/api/identify', (req, res) => {
   res.json({ ok: true, _fbc, _fbp, fbclid: fbclid || req.cookies.fbclid || null });
 });
 
-// API: Initialize Transaction
+// API: Initialize Transaction (EMAIL ONLY)
 app.post('/api/tx/init', async (req, res) => {
   try {
-    const { email, firstName, lastName, phone } = req.body;
+    const { email } = req.body;
     
-    // Validation
-    if (!email || !firstName || !lastName) {
-      return res.status(400).json({ ok: false, error: 'Email, first name, and last name are required' });
+    // Validation - only email required
+    if (!email || !email.trim()) {
+      return res.status(400).json({ ok: false, error: 'Email is required' });
     }
-    
-    if (!phone) {
-      return res.status(400).json({ ok: false, error: 'Phone number is required' });
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ ok: false, error: 'Valid email is required' });
     }
 
     const ip = req.cookies._vip || (req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip);
@@ -281,13 +328,8 @@ app.post('/api/tx/init', async (req, res) => {
       reference,
       metadata: {
         custom_fields: [
-          { display_name: 'Product', variable_name: 'product', value: PRODUCT_NAME },
-          { display_name: 'Buyer Name', variable_name: 'buyer_name', value: `${firstName} ${lastName}`.trim() },
-          { display_name: 'Phone', variable_name: 'phone', value: phone }
+          { display_name: 'Product', variable_name: 'product', value: PRODUCT_NAME }
         ],
-        firstName, 
-        lastName, 
-        phone,
         productId: PRODUCT_ID,
         fbclid, 
         _fbc, 
@@ -305,9 +347,6 @@ app.post('/api/tx/init', async (req, res) => {
     await Order.create({
       reference,
       email, 
-      firstName, 
-      lastName,
-      phone, // Store E.164 format
       amount: Number(PRODUCT_PRICE_KOBO),
       currency: CURRENCY,
       ip,
@@ -417,18 +456,15 @@ app.post('/webhooks/paystack', async (req, res) => {
   res.sendStatus(200);
 });
 
-// Build CAPI Payload with proper validation
+// Build CAPI Payload (Email Only with proper SHA256 hashing per Meta docs)
 function buildCapiPayload(order) {
   const eventId = order.reference;
   const eventTime = Math.floor((order.verifiedAt || Date.now()) / 1000);
   const sourceUrl = `${SITE_URL}/paycomplete.html?ref=${encodeURIComponent(order.reference)}`;
 
-  // Build user_data with proper hashing
+  // Build user_data with proper hashing per Meta CAPI requirements
   const user_data = {
     em: order.email ? [sha256(normalizeEmail(order.email))] : undefined,
-    fn: order.firstName ? [sha256(order.firstName)] : undefined,
-    ln: order.lastName ? [sha256(order.lastName)] : undefined,
-    ph: order.phone ? [sha256(formatPhoneForCAPI(order.phone))] : undefined,
     external_id: order.email ? [sha256(normalizeEmail(order.email))] : undefined,
     client_ip_address: order.ip || undefined,
     client_user_agent: order.userAgent || undefined,
@@ -436,6 +472,11 @@ function buildCapiPayload(order) {
     fbp: order.fbp || undefined,
     country: order.country ? [sha256(order.country.toLowerCase())] : undefined
   };
+
+  // Add phone if available (will be added after WhatsApp modal submission)
+  if (order.phone) {
+    user_data.ph = [sha256(formatPhoneForCAPI(order.phone))];
+  }
 
   // Remove undefined fields
   Object.keys(user_data).forEach(key => {
@@ -476,7 +517,6 @@ function buildCapiPayload(order) {
   
   if (FB_TEST_EVENT_CODE) {
     payload.test_event_code = FB_TEST_EVENT_CODE;
-    console.log(`📊 Using test event code: ${FB_TEST_EVENT_CODE}`);
   }
 
   return payload;
@@ -515,7 +555,6 @@ app.get('/api/order/confirm', async (req, res) => {
       const payload = buildCapiPayload(order);
       
       console.log(`📤 Sending CAPI event for ${ref}...`);
-      console.log('Payload:', JSON.stringify(payload, null, 2));
       
       const { data } = await axios.post(graphUrl, payload, {
         params: { access_token: FB_ACCESS_TOKEN },
@@ -525,7 +564,6 @@ app.get('/api/order/confirm', async (req, res) => {
 
       console.log(`✅ CAPI response for ${ref}:`, JSON.stringify(data, null, 2));
 
-      // Check if there are any errors in the response
       if (data.events_received === 0 || (data.messages && data.messages.length > 0)) {
         throw new Error(`CAPI rejected event: ${JSON.stringify(data.messages || data)}`);
       }
@@ -544,7 +582,6 @@ app.get('/api/order/confirm', async (req, res) => {
     } catch (err) {
       const errorMsg = err.response?.data?.error?.message || err.message || 'Unknown error';
       console.error(`❌ CAPI send failed for ${ref}:`, errorMsg);
-      console.error('Full error:', err.response?.data || err);
       
       order.capi = {
         sent: false,
@@ -558,17 +595,18 @@ app.get('/api/order/confirm', async (req, res) => {
     }
   }
 
-  // Send Telegram notification (one-time)
-  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !order.telegram?.sent) {
-    const telegramResult = await sendTelegramNotification(order, { capiSent, capiError });
+  // Send order Telegram notification (one-time)
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !order.telegram?.orderSent) {
+    const telegramResult = await sendOrderTelegram(order, { capiSent, capiError });
     order.telegram = {
-      sent: telegramResult.sent,
+      ...order.telegram,
+      orderSent: telegramResult.sent,
       lastTriedAt: new Date(),
       response: telegramResult
     };
     await order.save();
     if (telegramResult.sent) {
-      console.log(`✅ Telegram notification sent for ${ref}`);
+      console.log(`✅ Order Telegram notification sent for ${ref}`);
     }
   }
 
@@ -579,16 +617,69 @@ app.get('/api/order/confirm', async (req, res) => {
     product: { id: PRODUCT_ID, name: PRODUCT_NAME },
     order: { 
       reference: order.reference, 
-      email: order.email, 
-      firstName: order.firstName,
-      phone: order.phone,
+      email: order.email,
       amount: order.amount, 
       currency: order.currency 
     },
     capiSent: order.capi.sent === true,
     capiError: order.capi.error,
-    telegramSent: order.telegram?.sent === true
+    telegramSent: order.telegram?.orderSent === true
   });
+});
+
+// API: Submit WhatsApp Phone Number
+app.post('/api/submit-phone', async (req, res) => {
+  try {
+    const { reference, phone } = req.body;
+    
+    if (!reference || !phone) {
+      return res.status(400).json({ ok: false, error: 'Reference and phone required' });
+    }
+    
+    if (phone.trim().length < 5) {
+      return res.status(400).json({ ok: false, error: 'Valid phone number required' });
+    }
+    
+    const order = await Order.findOne({ reference });
+    if (!order) {
+      return res.status(404).json({ ok: false, error: 'Order not found' });
+    }
+    
+    if (order.status !== 'success') {
+      return res.status(400).json({ ok: false, error: 'Order not completed' });
+    }
+    
+    // Update phone number
+    order.phone = phone.trim();
+    await order.save();
+    
+    console.log(`📱 Phone number collected for ${reference}: ${phone}`);
+    
+    // Send phone Telegram notification
+    if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !order.telegram?.phoneSent) {
+      const phoneResult = await sendPhoneTelegram(order);
+      order.telegram = {
+        ...order.telegram,
+        phoneSent: phoneResult.sent,
+        lastTriedAt: new Date()
+      };
+      await order.save();
+      
+      if (phoneResult.sent) {
+        console.log(`✅ Phone Telegram notification sent for ${reference}`);
+      }
+    }
+    
+    res.json({ 
+      ok: true, 
+      message: 'Phone number received',
+      telegramSent: order.telegram?.phoneSent === true
+    });
+    
+  } catch (e) {
+    console.error('❌ submit-phone error:', e.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
 });
 
 // CAPI Retry Worker - runs every minute
@@ -656,4 +747,5 @@ app.listen(PORT, () => {
   console.log(`📊 Test Events: ${FB_TEST_EVENT_CODE ? `Enabled (${FB_TEST_EVENT_CODE})` : 'Disabled (production mode)'}`);
   console.log(`📱 Telegram: ${TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? 'Enabled' : 'Disabled (optional)'}`);
   console.log(`\n🔍 CAPI Retry Worker: Active (checks every 60 seconds)`);
+  console.log(`📱 WhatsApp Collection: Enabled on paycomplete page`);
 });
